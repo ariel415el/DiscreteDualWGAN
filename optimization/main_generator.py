@@ -1,16 +1,12 @@
 import argparse
-
 import torchvision
 
 from losses import W1, W2
 from models import get_generator
-import numpy as np
 from utils import *
 
 torch.backends.cudnn.benchmark = True
 
-
-from utils import human_format
 
 
 def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
@@ -105,7 +101,7 @@ def train_images(args):
 
         print(it, "FIT loss:", np.mean(g_loss))
         y_output = netG(debug_fixed_z).view(-1, args.c, args.im_size, args.im_size)
-        torchvision.utils.save_image(y_output, "result/fake_%d.png" % it, normalize=True)
+        torchvision.utils.save_image(y_output, f"{output_dir}/fake_%d.png" % it, normalize=True)
 
 
 def train_patches(args):
