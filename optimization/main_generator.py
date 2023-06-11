@@ -148,11 +148,11 @@ if __name__ == '__main__':
     args.n_hidden = 512
 
     # Empirical stopping criterion
-    args.memory_size = 4000
+    args.memory_size = 2000
     args.early_end = (1000, 200, 320)
 
     args.n_iters = 100
-    args.max_ots_iters = 20000
+    args.max_ots_iters = 2000
 
     args.distance = "W2"  # W1 or W2 or hybrid: W1 better looking, W2 faster
 

@@ -1,9 +1,13 @@
+import sys
+import os
 import argparse
 from time import time
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torchvision
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from losses import *
 from utils.image import *
 from utils.data import *
@@ -13,7 +17,7 @@ torch.backends.cudnn.benchmark = True
 torch.autograd.set_detect_anomaly(True)
 
 
-def OTS(outputs, psi, opt_psi, dataloader, loss_func, args, it, patch_mode):
+def OTS(outputs, psi, opt_psi, data, loss_func, args, it, patch_mode):
     start = time()
     w1_estimate = []
     idx_memory_outputs = []
@@ -23,9 +27,9 @@ def OTS(outputs, psi, opt_psi, dataloader, loss_func, args, it, patch_mode):
     for ots_iter in range(args.max_ots_iters):
         opt_psi.zero_grad()
 
-        data_batch, data_idx = next(iter(dataloader))
+        data_idx = torch.randperm(len(data))[:args.batch_size]
 
-        phi, outputs_idx = loss_func.score(data_batch.to(device), outputs, psi)
+        phi, outputs_idx = loss_func.score(data[data_idx].to(device), outputs, psi)
 
         dual_estimate = torch.mean(phi) + torch.mean(psi)
 
@@ -45,7 +49,7 @@ def OTS(outputs, psi, opt_psi, dataloader, loss_func, args, it, patch_mode):
         if ots_iter % 100 == 0:
             np_indices = torch.cat(idx_memory_outputs).reshape(-1).cpu().numpy()
             n, min_f, max_f = args.early_end
-            histo = np.histogram(np_indices, bins=n, range=(0, len(dataloader.dataset) - 1), density=True)[0]
+            histo = np.histogram(np_indices, bins=n, range=(0, len(data) - 1), density=True)[0]
             histo /= histo.sum()
             if histo.min() >= min_f/n and histo.max() <= max_f/n:
                 break
@@ -54,13 +58,13 @@ def OTS(outputs, psi, opt_psi, dataloader, loss_func, args, it, patch_mode):
                   f"histogram ({histo.min()}: {histo.max()}), goal ({min_f/n}, {max_f/n}), "
                   f"memory-size: {len(idx_memory_outputs)}, " +
                   (f"Cuda-memory {human_format(torch.cuda.memory_allocated(0))}" if device == torch.device("cuda") else "") +
-                  f" Images / sec {ots_iter * len(data_batch) / (time()-start)}")
+                  f" Images / sec {ots_iter * args.batch_size / (time() - start)}")
 
-    memory = list(zip(idx_memory_data, idx_memory_outputs))
+        memory = list(zip(idx_memory_data, idx_memory_outputs))
     return memory
 
 
-def FIT(outputs, opt, dataset, memory, loss_func, patch_mode):
+def FIT(outputs, opt, data, memory, loss_func, patch_mode):
     opt.zero_grad()
     losses = []
     total_loss = 0
@@ -71,10 +75,7 @@ def FIT(outputs, opt, dataset, memory, loss_func, patch_mode):
             outputs_ = outputs
         opt.zero_grad()
 
-        my_subset = torch.utils.data.Subset(dataset, data_idx)
-        data_batch, _ = next(iter(DataLoader(my_subset, batch_size=len(my_subset))))
-        data_batch = data_batch.reshape(len(data_batch), -1).to(device)
-        loss = loss_func.loss(data_batch, outputs_[outputs_idx])
+        loss = loss_func.loss(data[data_idx].to(device), outputs_[outputs_idx])
         # total_loss += loss
 
         loss.backward()
@@ -92,12 +93,14 @@ def train(args, patch_mode=False):
     loss_func = get_loss_function(args.loss_name)
 
     # Load data
-    dataloader = get_dataloader(args.data_path, args.im_size, args.gray, args.batch_size, n_workers=0,  limit_data=None)
-    args.c = 1 if args.gray else 3
+    data = get_data(args.data_path, args.im_size, args.gray, limit_data=70000)
+    args.c = data.shape[1]
 
     # Init optimized images
     if args.init_mode == "zeros":
         outputs = torch.zeros(args.num_images,  args.c, args.im_size, args.im_size).to(device)
+    elif args.init_mode == "mean":
+        outputs = torch.mean(data, dim=0, keepdim=True).repeat(args.num_images, 1, 1, 1)
     else:
         outputs = torch.load(args.init_mode).to(device).detach()
 
@@ -107,19 +110,25 @@ def train(args, patch_mode=False):
     opt_outputs = torch.optim.Adam([outputs], lr=args.lr_I)
 
     # Reshape data and outputs
+    if patch_mode:
+        data = to_patches(data, args.im_size, args.c, p=args.p, s=args.s)
 
-    # data = data.view(len(data), -1)
-    n_duals = len(outputs)
-    outputs = outputs.view(n_duals, -1)
+        n_patches_in_image = compute_n_patches_in_image(args.im_size, args.c, args.p, args.s)
+        args.batch_size *= n_patches_in_image
+        n_duals = args.num_images * n_patches_in_image
+    else:
+        data = data.view(len(data), -1)
+        outputs = outputs.view(len(outputs), -1)
+        n_duals = len(outputs)
 
     psi = torch.ones(n_duals, requires_grad=True, device=device)
     opt_psi = torch.optim.Adam([psi], lr=args.lr_phi)
 
-    print(f"N-duals: {n_duals}, Outputs size: {outputs.shape}")
+    print(f"Data size: {data.shape}, Outputs size: {outputs.shape}")
     plot = []
     for it in range(args.n_iters):
-        memory = OTS(outputs.detach(), psi, opt_psi, dataloader, loss_func, args, it, patch_mode)
-        g_loss = FIT(outputs, opt_outputs, dataloader.dataset, memory, loss_func, patch_mode)
+        memory = OTS(outputs.detach(), psi, opt_psi, data, loss_func, args, it, patch_mode)
+        g_loss = FIT(outputs, opt_outputs, data, memory, loss_func, patch_mode)
         plot.append(np.mean(g_loss))
         print(it, "FIT loss:", np.mean(g_loss))
         if patch_mode:
@@ -155,8 +164,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_I', default=0.001, type=float)
     parser.add_argument('--lr_phi', default=0.001, type=float)
     parser.add_argument('--n_iters', default=100, type=int)
-    parser.add_argument('--memory_size', default=4000, type=int)
-    parser.add_argument('--max_ots_iters', default=20000, type=int)
+    parser.add_argument('--memory_size', default=2000, type=int)
+    parser.add_argument('--max_ots_iters', default=2000, type=int)
     parser.add_argument('--early_end', default=(1000, 0.5, 1.5), type=tuple)
 
     # Other

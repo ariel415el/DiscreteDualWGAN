@@ -1,6 +1,6 @@
 import sys
 import torch
-from utils import parse_classnames_and_kwargs
+from utils.common import parse_classnames_and_kwargs
 
 
 def L1_dist_matrix(X, Y):
@@ -58,7 +58,7 @@ def batch_NN(X, Y, f, b, dist_function):
 
 
 class W1:
-    def __init__(self, b=512):
+    def __init__(self, b=256):
         self.b = b
 
     def score(self, x, y, f):
@@ -69,7 +69,7 @@ class W1:
 
 
 class W2:
-    def __init__(self, b=512):
+    def __init__(self, b=256):
         self.b = b
 
     def score(self, x, y, f):

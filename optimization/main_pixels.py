@@ -1,6 +1,7 @@
 import sys
 import os
 import argparse
+from time import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,13 +9,16 @@ import torchvision
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from losses import *
-from utils import *
+from utils.image import *
+from utils.data import *
+from utils.common import *
 
 torch.backends.cudnn.benchmark = True
 torch.autograd.set_detect_anomaly(True)
 
 
 def OTS(outputs, psi, opt_psi, data, loss_func, args, it, patch_mode):
+    start = time()
     w1_estimate = []
     idx_memory_outputs = []
     idx_memory_data = []
@@ -53,9 +57,10 @@ def OTS(outputs, psi, opt_psi, data, loss_func, args, it, patch_mode):
                   f"w1_estimate: {np.mean(w1_estimate[-1000:]):.2f}, "
                   f"histogram ({histo.min()}: {histo.max()}), goal ({min_f/n}, {max_f/n}), "
                   f"memory-size: {len(idx_memory_outputs)}, " +
-                  (f"Cuda-memory {human_format(torch.cuda.memory_allocated(0))}" if device == torch.device("cuda") else ""))
+                  (f"Cuda-memory {human_format(torch.cuda.memory_allocated(0))}" if device == torch.device("cuda") else "") +
+                  f" Images / sec {ots_iter * args.batch_size / (time() - start)}")
 
-    memory = list(zip(idx_memory_data, idx_memory_outputs))
+        memory = list(zip(idx_memory_data, idx_memory_outputs))
     return memory
 
 
@@ -88,7 +93,7 @@ def train(args, patch_mode=False):
     loss_func = get_loss_function(args.loss_name)
 
     # Load data
-    data = get_data(args.data_path, args.im_size, args.gray).to(device)
+    data = get_data(args.data_path, args.im_size, args.gray, limit_data=70000).to(device)
     args.c = data.shape[1]
 
     # Init optimized images
@@ -159,8 +164,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_I', default=0.001, type=float)
     parser.add_argument('--lr_phi', default=0.001, type=float)
     parser.add_argument('--n_iters', default=100, type=int)
-    parser.add_argument('--memory_size', default=4000, type=int)
-    parser.add_argument('--max_ots_iters', default=20000, type=int)
+    parser.add_argument('--memory_size', default=2000, type=int)
+    parser.add_argument('--max_ots_iters', default=2000, type=int)
     parser.add_argument('--early_end', default=(1000, 0.5, 1.5), type=tuple)
 
     # Other
