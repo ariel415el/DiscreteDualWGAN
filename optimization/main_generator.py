@@ -1,9 +1,18 @@
 import argparse
+import os
+import sys
+
+import numpy as np
+import torch
 import torchvision
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from losses import W1, W2
-from models import get_generator
+from models import get_generator, PixelGenerator
 from utils import *
+from utils.common import human_format
+from utils.data import get_data
+from utils.image import to_patches
 
 torch.backends.cudnn.benchmark = True
 
@@ -26,8 +35,8 @@ def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
 
         loss = torch.mean(phi) + torch.mean(psi)
         loss_primal = loss_func.loss(y_fake, data[idx])
-
-        loss_back = -torch.mean(psi[idx])  # equivalent to loss
+        loss_back = -1 * loss
+        # loss_back = -torch.mean(psi[idx])  # equivalent to loss
         loss_back.backward()
 
         opt_psi.step()
@@ -41,14 +50,14 @@ def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
             memory_z = memory_z[1:]
             memory_idx = memory_idx[1:]
 
-        if ots_iter % 1000 == 0:
+        if ots_iter % 100 == 0:
             # Empirical stopping criterion
             np_indices = torch.cat(memory_idx).reshape(-1).cpu().numpy()
             n, min_f, max_f = args.early_end
             histo = np.histogram(np_indices, bins=n, range=(0, len(data) - 1), density=True)[0]
             histo /= histo.sum()
-            if histo.min() >= min_f/n and histo.max() <= max_f/n:
-                break
+            # if histo.min() >= min_f/n and histo.max() <= max_f/n:
+            #     break
             print(f"Iteration {it}, OTS: {ots_iter}, "
                   f"loss_dual: {np.mean(ot_loss[-1000:]):.2f}, "
                   f"loss_primal: {np.mean(w1_estimate[-1000:]):.2f}, "
@@ -80,17 +89,18 @@ def FIT(netG, opt_g, data, memory, loss_func):
 
 def train_images(args):
     os.makedirs(output_dir, exist_ok=True)
-    data = get_data(args.data_path, args.im_size, gray=False).to(device)
+    data = get_data(args.data_path, args.im_size, gray=False, limit_data=10000).to(device)
     output_dim = args.c * args.im_size**2
     data = data.view(len(data), output_dim)
 
     loss_func = W1() if args.distance == "W1" else W2()
 
-    netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
-    opt_g = torch.optim.Adam(netG.parameters(), lr=1e-4)
+    # netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
+    netG = PixelGenerator(args.nz, args.im_size).to(device)
+    opt_g = torch.optim.Adam(netG.parameters(), lr=0.001)
 
     psi = torch.zeros(len(data), requires_grad=True, device=device)
-    opt_psi = torch.optim.Adam([psi], lr=1e-1)
+    opt_psi = torch.optim.Adam([psi], lr=0.001)
 
     debug_fixed_z = torch.randn(args.batch_size, args.nz, device=device)
     print(f"- , {torch.cuda.memory_allocated(0)}")
@@ -110,13 +120,15 @@ def train_patches(args):
     d = args.im_size
     c = args.c
     os.makedirs(output_dir, exist_ok=True)
-    data = get_data(args.data_path, args.im_size, gray=False).to(device)
+    data = get_data(args.data_path, args.im_size, gray=False, limit_data=10000).to(device)
     data = to_patches(data, d, c, p, s)
     print(f"Got {len(data)} patches")
 
     loss_func = W1() if args.distance == "W1" else W2()
 
-    netG = get_generator(args.nz, args.n_hidden, output_dim=c*d**2).to(device)
+    # netG = get_generator(args.nz, args.n_hidden, output_dim=c*d**2).to(device)
+    netG = PixelGenerator(args.nz, args.im_size).to(device)
+
     opt_g = torch.optim.Adam(netG.parameters(), lr=1e-4)
 
     def patch_wrapper(x):
@@ -157,12 +169,12 @@ if __name__ == '__main__':
     args.distance = "W2"  # W1 or W2 or hybrid: W1 better looking, W2 faster
 
     output_dir = f"{os.path.basename(args.data_path)}_I-{args.im_size}"
-    train_images(args)
+    # train_images(args)
 
-    # args.p = 32
-    # args.s = 16
-    # output_dir += f"_P-{args.p}_S-{args.s}"
-    # train_patches(args)
+    args.p = 15
+    args.s = 15
+    output_dir += f"_P-{args.p}_S-{args.s}"
+    train_patches(args)
 
 
 
