@@ -4,7 +4,7 @@ from utils.common import parse_classnames_and_kwargs
 
 
 def L1_dist_matrix(X, Y):
-    return torch.abs(X[:, None] - Y[None, :]).mean(-1)
+    return torch.abs(X[:, None] - Y[None, :]).sum(-1)
 
 
 def efficient_L2_dist_matrix(X, Y):
@@ -16,8 +16,8 @@ def efficient_L2_dist_matrix(X, Y):
     Returns a n2 n1 of indices
     """
     dist = (X * X).sum(1)[:, None] + (Y * Y).sum(1)[None, :] - 2.0 * torch.mm(X, torch.transpose(Y, 0, 1))
-    d = X.shape[1]
-    dist /= d # normalize by size of vector to make dists independent of the size of d ( use same alpha for all patche-sizes)
+    # dist = torch.sqrt(dist)
+    dist /= X.shape[1] # normalize by size of vector to make dists independent of the size of d ( use same alpha for all patche-sizes)
     return dist
 
 

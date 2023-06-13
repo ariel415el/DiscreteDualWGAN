@@ -21,7 +21,7 @@ def get_generator(nz, n_hidden, output_dim):
         nn.Tanh()
     )
 
-    initialize_weights(G)
+    # initialize_weights(G)
 
     return G
 
@@ -30,7 +30,7 @@ class PixelGenerator(nn.Module):
         super(PixelGenerator, self).__init__()
         n = int(n)
         if init_mode == "noise":
-            images = torch.randn(n, 3*output_dim**2) * 0.5
+            images = torch.randn(n, 3*output_dim**2)
         elif init_mode == "ones":
             images = torch.ones(n, 3*output_dim**2)
         elif init_mode == "zeros":
