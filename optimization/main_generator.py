@@ -7,7 +7,7 @@ import torch
 import torchvision
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from losses import W1, W2
+from losses import L1, L2
 from models import get_generator, PixelGenerator
 from utils import *
 from utils.common import human_format
@@ -93,7 +93,7 @@ def train_images(args):
     output_dim = args.c * args.im_size**2
     data = data.view(len(data), output_dim)
 
-    loss_func = W1() if args.distance == "W1" else W2()
+    loss_func = L1() if args.distance == "L1" else L2()
 
     # netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
     netG = PixelGenerator(args.nz, args.im_size).to(device)
@@ -124,7 +124,7 @@ def train_patches(args):
     data = to_patches(data, d, c, p, s)
     print(f"Got {len(data)} patches")
 
-    loss_func = W1() if args.distance == "W1" else W2()
+    loss_func = L1() if args.distance == "L2" else L2()
 
     # netG = get_generator(args.nz, args.n_hidden, output_dim=c*d**2).to(device)
     netG = PixelGenerator(args.nz, args.im_size).to(device)

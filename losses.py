@@ -57,7 +57,7 @@ def batch_NN(X, Y, f, b, dist_function):
     return NN_dists, NNs
 
 
-class W1:
+class L1:
     def __init__(self, b=256):
         self.b = b
 
@@ -68,7 +68,7 @@ class W1:
         return torch.abs(x - y).sum(-1).mean(0)
 
 
-class W2:
+class L2:
     def __init__(self, b=256):
         self.b = b
 
@@ -76,7 +76,7 @@ class W2:
         return batch_NN(x, y, f, self.b, efficient_L2_dist_matrix)
 
     def loss(self, x, y):
-        return ((x - y)**2).sum(-1).mean(0)
+        return torch.sqrt(((x - y)**2).sum(-1)).mean(0)
 
 
 

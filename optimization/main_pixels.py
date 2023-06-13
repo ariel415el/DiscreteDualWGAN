@@ -93,7 +93,7 @@ def train(args, patch_mode=False):
     loss_func = get_loss_function(args.loss_name)
 
     # Load data
-    data = get_data(args.data_path, args.im_size, args.gray, limit_data=10000)
+    data = get_data(args.data_path, args.im_size, args.gray, limit_data=args.limit_data)
     args.c = data.shape[1]
 
     # Init optimized images
@@ -141,6 +141,7 @@ def train(args, patch_mode=False):
         torchvision.utils.save_image(images, f"{output_dir}/fake_%d.png" % it, normalize=True)
 
         plt.plot(range(len(plot)), plot)
+        plt.title(f"FIT Loss: {plot[-1]:.5f}" )
         plt.savefig((f"{output_dir}/plot.png"))
         plt.clf()
 
@@ -151,6 +152,7 @@ if __name__ == '__main__':
     # Data
     parser.add_argument('--data_path', default="/mnt/storage_ssd/datasets/FFHQ/FFHQ_128/FFHQ_128", help="Path to train images")
     parser.add_argument('--gray', default=False, action='store_true', help="Convert images to grayscale")
+    parser.add_argument('--limit_data', default=None, type=int)
 
     # Model
     parser.add_argument('--num_images', default=64, type=int)
@@ -161,7 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('--s', default=None, type=int)
 
     # Training
-    parser.add_argument('--loss_name', default='W2', type=str)
+    parser.add_argument('--loss_name', default='L2', type=str)
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--lr_I', default=0.001, type=float)
     parser.add_argument('--lr_phi', default=0.001, type=float)
