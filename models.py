@@ -13,8 +13,8 @@ def get_generator(nz, n_hidden, output_dim):
     G = nn.Sequential(
         nn.Linear(nz, n_hidden),
         nn.ReLU(True),
-        nn.Linear(n_hidden, n_hidden),
-        nn.ReLU(True),
+        # nn.Linear(n_hidden, n_hidden),
+        # nn.ReLU(True),
         nn.Linear(n_hidden, n_hidden),
         nn.ReLU(True),
         nn.Linear(n_hidden, output_dim),

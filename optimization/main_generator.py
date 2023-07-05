@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import torch
 import torchvision
+from matplotlib import pyplot as plt
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from losses import L1, L2
@@ -19,10 +20,9 @@ torch.backends.cudnn.benchmark = True
 
 
 def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
-    ot_loss = []
-    w1_estimate = []
-    memory_z = []
-    memory_idx = []
+    primals = []
+    duals = []
+    memory = []
     for ots_iter in range(args.max_ots_iters):
         opt_psi.zero_grad()
 
@@ -33,58 +33,54 @@ def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
 
         phi, idx = loss_func.score(y_fake, data, psi)
 
-        loss = torch.mean(phi) + torch.mean(psi)
-        loss_primal = loss_func.loss(y_fake, data[idx])
-        loss_back = -1 * loss
+        dual_loss = torch.mean(phi) + torch.mean(psi)
+        primal_loss = loss_func.loss(y_fake, data[idx])
+        loss_back = -1 * dual_loss
         # loss_back = -torch.mean(psi[idx])  # equivalent to loss
         loss_back.backward()
 
         opt_psi.step()
 
-        ot_loss.append(loss.item())
-        w1_estimate.append(loss_primal.item())
+        duals.append(dual_loss.item())
+        primals.append(primal_loss.item())
 
-        memory_z.append(z_batch)
-        memory_idx.append(idx)
-        if len(memory_z) > args.memory_size:
-            memory_z = memory_z[1:]
-            memory_idx = memory_idx[1:]
+        memory.append((z_batch, idx))
+        if len(memory) > args.memory_size:
+            memory = memory[1:]
 
         if ots_iter % 100 == 0:
             # Empirical stopping criterion
-            np_indices = torch.cat(memory_idx).reshape(-1).cpu().numpy()
-            n, min_f, max_f = args.early_end
-            histo = np.histogram(np_indices, bins=n, range=(0, len(data) - 1), density=True)[0]
-            histo /= histo.sum()
+            # np_indices = torch.cat(memory_idx).reshape(-1).cpu().numpy()
+            # n, min_f, max_f = args.early_end
+            # histo = np.histogram(np_indices, bins=n, range=(0, len(data) - 1), density=True)[0]
+            # histo /= histo.sum()
             # if histo.min() >= min_f/n and histo.max() <= max_f/n:
             #     break
-            print(f"Iteration {it}, OTS: {ots_iter}, "
-                  f"loss_dual: {np.mean(ot_loss[-1000:]):.2f}, "
-                  f"loss_primal: {np.mean(w1_estimate[-1000:]):.2f}, "
-                  f"histogram ({histo.min()}: {histo.max()}), goal ({min_f/n}, {max_f/n}), "
-                  f"memory-size: {len(memory_z)}, " +
+            print(f"Iteration {it}, OTS: {ots_iter}, " +
+                  f"loss_dual: {duals[-1]:.2f}, " +
+                  f"loss_primal: {primals[-1]:.2f}, " +
+                  # f"histogram ({histo.min()}: {histo.max()}), goal ({min_f/n}, {max_f/n}), "
+                  f"memory-size: {len(memory)}, " +
                   (f"Cuda-memory {human_format(torch.cuda.memory_allocated(0))}" if device == torch.device("cuda") else ""))
 
-    memory = list(zip(memory_z, memory_idx))
-    return memory
+    return memory, primals, duals
 
 
 def FIT(netG, opt_g, data, memory, loss_func):
-    g_loss = []
+    primals = []
     for z_batch, data_idx in memory:
         opt_g.zero_grad()
 
         y_fake = netG(z_batch)  # G_t(z)
 
-        loss_g = loss_func.loss(data[data_idx], y_fake)
+        primal_loss = loss_func.loss(data[data_idx], y_fake)
 
-        loss_g.backward()
+        primal_loss.backward()
         opt_g.step()
 
-        g_loss.append(loss_g.item())
+        primals.append(primal_loss.item())
 
-    # netG.zero_grad()
-    return g_loss
+    return primals
 
 
 def train_images(args):
@@ -95,22 +91,38 @@ def train_images(args):
 
     loss_func = L1() if args.distance == "L1" else L2()
 
-    # netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
-    netG = PixelGenerator(args.nz, args.im_size).to(device)
+    if args.arch == "FC":
+        netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
+    else:
+        netG = PixelGenerator(args.nz, args.im_size).to(device)
     opt_g = torch.optim.Adam(netG.parameters(), lr=0.001)
 
     psi = torch.randn(len(data), requires_grad=True, device=device)
-    opt_psi = torch.optim.Adam([psi], lr=0.001)
+    opt_psi = torch.optim.Adam([psi], lr=0.01)
 
     debug_fixed_z = torch.randn(args.batch_size, args.nz, device=device)
     print(f"- , {torch.cuda.memory_allocated(0)}")
 
+    all_primals = []
+    all_duals = []
     for it in range(args.n_iters):
-        memory = OTS(netG, psi, opt_psi, data, loss_func, args, it, device)
+        memory, primals, duals = OTS(netG, psi, opt_psi, data, loss_func, args, it, device)
         g_loss = FIT(netG, opt_g, data, memory, loss_func)
-
         print(it, "FIT loss:", np.mean(g_loss))
+
+        all_duals += duals
+        all_primals += primals
+        plt.plot(range(len(all_primals)), all_primals, label="Primal", color='r')
+        plt.title(f"Last: {all_primals[-1]:.4f}" )
+        plt.plot(range(len(all_duals)), all_duals, label="Dual", color='b')
+        plt.title(f"Last: {all_duals[-1]:.4f}" )
+        plt.legend()
+        plt.savefig(f"{output_dir}/plot.png")
+        plt.clf()
+
         y_output = netG(debug_fixed_z).view(-1, args.c, args.im_size, args.im_size)
+        torchvision.utils.save_image(y_output, f"{output_dir}/fixed_z_fake_%d.png" % it, normalize=True)
+        y_output = netG(torch.randn(args.batch_size, args.nz, device=device)).view(-1, args.c, args.im_size, args.im_size)
         torchvision.utils.save_image(y_output, f"{output_dir}/fake_%d.png" % it, normalize=True)
 
 
@@ -156,8 +168,9 @@ if __name__ == '__main__':
     args.im_size = 64
     args.nz = 64
 
+    args.arch = "FC"
     args.batch_size = 64
-    args.n_hidden = 512
+    args.n_hidden = 128
 
     # Empirical stopping criterion
     args.memory_size = 2000
@@ -170,12 +183,6 @@ if __name__ == '__main__':
 
     output_dir = f"{os.path.basename(args.data_path)}_I-{args.im_size}"
     train_images(args)
-
-    # args.p = 15
-    # args.s = 15
-    # output_dir += f"_P-{args.p}_S-{args.s}"
-    # train_patches(args)
-
 
 
 
