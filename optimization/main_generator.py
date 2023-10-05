@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from losses import L1, L2
-from models import get_generator, PixelGenerator
+from models import FCGenerator, PixelGenerator
 from utils import *
 from utils.common import human_format
 from utils.data import get_data
@@ -17,7 +17,7 @@ from utils.image import to_patches
 
 torch.backends.cudnn.benchmark = True
 
-
+z_batch = None
 
 def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
     primals = []
@@ -28,7 +28,10 @@ def OTS(netG, psi, opt_psi, data, loss_func, args, it, device):
 
         # print(f"{ots_iter}: {human_format(torch.cuda.memory_allocated(0))}")
 
-        z_batch = torch.randn(args.batch_size, args.nz, device=device)
+        global z_batch
+        if z_batch is None:
+            z_batch = torch.randn(args.batch_size, args.nz, device=device)
+
         y_fake = netG(z_batch).detach()
 
         phi, idx = loss_func.score(y_fake, data, psi)
@@ -85,14 +88,14 @@ def FIT(netG, opt_g, data, memory, loss_func):
 
 def train_images(args):
     os.makedirs(output_dir, exist_ok=True)
-    data = get_data(args.data_path, args.im_size, gray=False, limit_data=10000).to(device)
+    data = get_data(args.data_path, args.im_size, gray=False, limit_data=args.limit_data, center_crop=args.center_crop).to(device)
     output_dim = args.c * args.im_size**2
     data = data.view(len(data), output_dim)
 
     loss_func = L1() if args.distance == "L1" else L2()
 
     if args.arch == "FC":
-        netG = get_generator(args.nz, args.n_hidden, output_dim).to(device)
+        netG = FCGenerator(args.nz, output_dim, args.n_hidden).to(device)
     else:
         netG = PixelGenerator(args.nz, args.im_size).to(device)
     opt_g = torch.optim.Adam(netG.parameters(), lr=0.001)
@@ -162,13 +165,15 @@ def train_patches(args):
 if __name__ == '__main__':
     device = torch.device("cuda")
     args = argparse.Namespace()
-    args.data_path = "/mnt/storage_ssd/datasets/FFHQ/FFHQ_128/FFHQ_128"
+    args.data_path = "/mnt/storage_ssd/datasets/FFHQ/FFHQ/FFHQ"
     args.c = 3
+    args.limit_data = 10000
+    args.center_crop = 90
 
     args.im_size = 64
     args.nz = 64
 
-    args.arch = "FC"
+    args.arch = "Pixels"
     args.batch_size = 64
     args.n_hidden = 128
 

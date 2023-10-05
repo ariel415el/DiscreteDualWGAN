@@ -8,9 +8,10 @@ from tqdm import tqdm
 from torchvision import transforms
 
 
-def get_data(root, im_size, gray, limit_data=None):
+def get_data(root, im_size, gray, limit_data=None, center_crop=None):
     transform = transforms.Compose([
         transforms.ToTensor(),
+        transforms.CenterCrop(center_crop) if center_crop is not None else transforms.Lambda(lambda x: x),
         transforms.Resize(im_size),
         transforms.Normalize((0.5,), (0.5,))
     ])
